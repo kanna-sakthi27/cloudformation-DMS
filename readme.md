@@ -1,7 +1,19 @@
 # AWS DMS Deployment Automation
 
 ## Overview
-This solution automates the deployment of AWS Database Migration Service (DMS) infrastructure using a CloudFormation template and a Bash script. It provisions a complete DMS environment including replication instances, endpoints, security groups, and scheduled migration tasks for PostgreSQL databases.
+This repository provides an automated solution to deploy AWS Database Migration Service (DMS) infrastructure using CloudFormation and a Bash deployment script. 
+
+The primary purpose is to enable **continuous replication** from a source database to a target database based on a scheduled task. For example, you can configure the replication task to run once a week (or any other schedule) to keep your target database in sync with the source.
+
+Key features include:
+- Provisioning of DMS replication instance, endpoints, subnet and security groups
+- Secure handling of database credentials
+- Scheduling migration tasks using AWS Scheduler (EventBridge) to automate replication runs
+- Support for PostgreSQL source and target endpoints (customizable)
+- Output of key resource ARNs for easy integration and monitoring
+
+This setup is ideal for scenarios where periodic data synchronization is required without manual intervention, leveraging AWS managed services for reliability and scalability.
+
 
 ---
 
