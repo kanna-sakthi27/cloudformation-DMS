@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Configure AWS DMS.
+
+Parameters:
+  ReplicationInstanceClass:
+    Type: String
+    Default: dms.r6.medium
+    Description: DMS replication instance class.
+
+
+  TargetDBPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the target RDS PostgreSQL database.
+  
+  SourceDBPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the source RDS PostgreSQL database.
+  
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  
+  VpcID:
+    Type: String
+
+  source-username:
+    Type: String
+  
+  target-username:
+    Type: String
+
+  Source_Server_Name:
+    Type: String
+
+  Target_Server_Name:
+    Type: String
+
+Resources:
+
+
+  DMSSubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Properties:
+      ReplicationSubnetGroupIdentifier: dms-subnet-group
+      ReplicationSubnetGroupDescription: Subnet group for DMS replication instance.
+      SubnetIds: !Ref SubnetIds
+
+  DMSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for DMS replication instance
+      VpcId: !Ref VpcID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: sg-0e707b11ba0407893
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0  # Allow all outbound traffic; adjust as needed
+
+  DMSReplicationInstance:
+    Type: AWS::DMS::ReplicationInstance
+    Properties:
+      ReplicationInstanceClass: !Ref ReplicationInstanceClass
+      AllocatedStorage: 100
+      VpcSecurityGroupIds:
+        -  !Ref DMSSecurityGroup
+      ReplicationSubnetGroupIdentifier: !Ref DMSSubnetGroup
+      PubliclyAccessible: false
+
+### This example is for RDS Postgres SQL , based on your Source DB type, please change the port and engine name
+  SourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointType: source
+      EngineName: aurora-postgresql
+      Username: !Ref source-username
+      Password: !Ref SourceDBPassword
+      ServerName: !Ref Source_Server_Name
+      Port: 3306
+      DatabaseName: reporting
+
+  TargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointType: target
+      EngineName: postgres
+      Username: !Ref target-username
+      Password: !Ref TargetDBPassword
+      ServerName: !Ref Target_Server_Name
+      Port: 5432
+      DatabaseName: reporting
+  
+  DMSMigrationTask:
+    Type: AWS::DMS::ReplicationTask
+    Properties:
+      MigrationType: full-load
+      ReplicationInstanceArn: !Ref DMSReplicationInstance
+      SourceEndpointArn: !Ref SourceEndpoint
+      TargetEndpointArn: !Ref TargetEndpoint
+      TableMappings: 
+        Fn::Sub: |
+          {
+            "rules": [
+              {
+                "rule-type": "selection",
+                "rule-id": "1",
+                "rule-name": "include-table1",
+                "object-locator": {
+                  "schema-name": "schema1",
+                  "table-name": "table1"
+                },
+                "rule-action": "include"
+              }
+
+            ]
+          }
+  DMSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DMSReplicationTaskPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dms:*
+                Resource: '*'
+
+
+  DMSSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: Start-DMS-Replication-Daily-at-Midnight-12am
+      ScheduleExpression: "cron(0 0 * * ? *)"
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target: 
+        Arn: "arn:aws:scheduler:::aws-sdk:databasemigration:startReplicationTask"
+        RoleArn: !GetAtt DMSExecutionRole.Arn
+        Input: 
+         Fn::Sub: |
+          {
+            "ReplicationTaskArn": "${DMSMigrationTask}",
+            "StartReplicationTaskType": "reload-target"
+          }
+Outputs:
+  ReplicationInstanceArn:
+    Description: ARN of the replication instance.
+    Value: !Ref DMSReplicationInstance
+
+  DMSMigrationTaskArn:
+    Description: ARN of the DMS Migration Task .
+    Value: !Ref DMSMigrationTask
